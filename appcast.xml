@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>MediaInfo (Signed)</title>
+    <link>https://github.com/aidancornelius/MediaInfo</link>
+    <description>Signed builds of MediaInfo</description>
+    <language>en</language>
+    <item>
+      <title>Version 1.7.4</title>
+      <pubDate>Thu, 01 Jan 2026 06:16:51 +0000</pubDate>
+      <sparkle:version>1.7.4</sparkle:version>
+      <sparkle:shortVersionString>1.7.4</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>10.15</sparkle:minimumSystemVersion>
+      <enclosure url="https://github.com/aidancornelius/MediaInfo/releases/download/1.7.4-signed/MediaInfo-signed.dmg" length="23611088" type="application/octet-stream" />
+    </item>
+  </channel>
+</rss>
