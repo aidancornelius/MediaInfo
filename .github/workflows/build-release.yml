@@ -88,9 +88,30 @@ jobs:
 
           echo "=== Signing nested components (inside-out) ==="
 
-          # 1. Sign Frameworks
+          # 1. Sign Frameworks (including deeply nested Sparkle components)
           echo "Signing frameworks..."
-          find "$APP_PATH/Contents/Frameworks" -type d -name "*.framework" -maxdepth 1 | while read fw; do
+          for fw in "$APP_PATH/Contents/Frameworks"/*.framework; do
+            [ -d "$fw" ] || continue
+            echo "Processing framework: $fw"
+
+            # Sign nested XPC services in framework
+            if [ -d "$fw/Versions/B/XPCServices" ]; then
+              find "$fw/Versions/B/XPCServices" -type d -name "*.xpc" | while read xpc; do
+                sign_component "$xpc"
+              done
+            fi
+
+            # Sign nested apps in framework (like Sparkle's Updater.app)
+            find "$fw" -type d -name "*.app" | while read nested_app; do
+              sign_component "$nested_app"
+            done
+
+            # Sign standalone binaries in framework (like Sparkle's Autoupdate)
+            for bin in "$fw/Versions/B/Autoupdate" "$fw/Versions/A/Autoupdate"; do
+              [ -f "$bin" ] && sign_component "$bin"
+            done
+
+            # Sign the framework itself
             sign_component "$fw"
           done
 
