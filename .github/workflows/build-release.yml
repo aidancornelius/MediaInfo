@@ -65,86 +65,84 @@ jobs:
 
       - name: Re-sign Application
         run: |
+          set -e
           APP_PATH="./MediaInfoEx.app"
           SIGN_ID="Developer ID Application"
 
-          # Function to sign with preserved entitlements
-          sign_component() {
+          # Sign a component, preserving entitlements
+          sign_it() {
             local component="$1"
-            local ent_file="/tmp/ent_$(basename "$component").plist"
+            local ent_file="/tmp/ent_$RANDOM.plist"
 
             # Extract existing entitlements
-            codesign -d --entitlements - "$component" > "$ent_file" 2>/dev/null || true
-
-            if [ -s "$ent_file" ] && grep -q "dict" "$ent_file"; then
-              echo "  Signing with entitlements: $component"
-              codesign --force --timestamp --options runtime --sign "$SIGN_ID" --entitlements "$ent_file" "$component"
-            else
-              echo "  Signing without entitlements: $component"
-              codesign --force --timestamp --options runtime --sign "$SIGN_ID" "$component"
+            if codesign -d --entitlements :"$ent_file" "$component" 2>/dev/null; then
+              if [ -s "$ent_file" ]; then
+                echo "  [+ent] $(basename "$component")"
+                codesign --force --timestamp --options runtime --sign "$SIGN_ID" --entitlements "$ent_file" "$component"
+                rm -f "$ent_file"
+                return
+              fi
             fi
-            rm -f "$ent_file"
+            echo "  [    ] $(basename "$component")"
+            codesign --force --timestamp --options runtime --sign "$SIGN_ID" "$component"
+            rm -f "$ent_file" 2>/dev/null || true
           }
 
-          echo "=== Signing nested components (inside-out) ==="
+          echo "=== Signing all components (inside-out) ==="
 
-          # 1. Sign Frameworks (including deeply nested Sparkle components)
-          echo "Signing frameworks..."
-          for fw in "$APP_PATH/Contents/Frameworks"/*.framework; do
-            [ -d "$fw" ] || continue
-            echo "Processing framework: $fw"
-
-            # Sign nested XPC services in framework
-            if [ -d "$fw/Versions/B/XPCServices" ]; then
-              find "$fw/Versions/B/XPCServices" -type d -name "*.xpc" | while read xpc; do
-                sign_component "$xpc"
-              done
-            fi
-
-            # Sign nested apps in framework (like Sparkle's Updater.app)
-            find "$fw" -type d -name "*.app" | while read nested_app; do
-              sign_component "$nested_app"
-            done
-
-            # Sign standalone binaries in framework (like Sparkle's Autoupdate)
-            for bin in "$fw/Versions/B/Autoupdate" "$fw/Versions/A/Autoupdate"; do
-              [ -f "$bin" ] && sign_component "$bin"
-            done
-
-            # Sign the framework itself
-            sign_component "$fw"
+          # Collect all signable items and sign from deepest to shallowest
+          # 1. Sparkle framework internals
+          echo "1. Sparkle framework components..."
+          for xpc in "$APP_PATH"/Contents/Frameworks/Sparkle.framework/Versions/*/XPCServices/*.xpc; do
+            [ -d "$xpc" ] && sign_it "$xpc"
+          done
+          for app in "$APP_PATH"/Contents/Frameworks/Sparkle.framework/Versions/*/Updater.app; do
+            [ -d "$app" ] && sign_it "$app"
+          done
+          for bin in "$APP_PATH"/Contents/Frameworks/Sparkle.framework/Versions/*/Autoupdate; do
+            [ -f "$bin" ] && sign_it "$bin"
+          done
+          for ins in "$APP_PATH"/Contents/Frameworks/Sparkle.framework/Versions/*/Installer.app; do
+            [ -d "$ins" ] && sign_it "$ins"
           done
 
-          # 2. Sign XPC Services in main app
-          echo "Signing XPC services..."
-          if [ -d "$APP_PATH/Contents/XPCServices" ]; then
-            find "$APP_PATH/Contents/XPCServices" -type d -name "*.xpc" -maxdepth 1 | while read xpc; do
-              sign_component "$xpc"
-            done
-          fi
+          # 2. Sign all frameworks
+          echo "2. Frameworks..."
+          for fw in "$APP_PATH"/Contents/Frameworks/*.framework; do
+            [ -d "$fw" ] && sign_it "$fw"
+          done
 
-          # 3. Sign App Extensions (Finder Extension) and their nested components
-          echo "Signing app extensions..."
-          if [ -d "$APP_PATH/Contents/PlugIns" ]; then
-            find "$APP_PATH/Contents/PlugIns" -type d -name "*.appex" -maxdepth 1 | while read appex; do
-              # Sign nested XPC services in extension first
-              if [ -d "$appex/Contents/XPCServices" ]; then
-                find "$appex/Contents/XPCServices" -type d -name "*.xpc" -maxdepth 1 | while read xpc; do
-                  sign_component "$xpc"
-                done
-              fi
-              sign_component "$appex"
-            done
-          fi
+          # 3. Main app XPC services
+          echo "3. Main app XPC services..."
+          for xpc in "$APP_PATH"/Contents/XPCServices/*.xpc; do
+            [ -d "$xpc" ] && sign_it "$xpc"
+          done
 
-          # 4. Sign the main app
-          echo "Signing main app..."
-          sign_component "$APP_PATH"
+          # 4. Extension's nested XPC services
+          echo "4. Extension XPC services..."
+          for xpc in "$APP_PATH"/Contents/PlugIns/*.appex/Contents/XPCServices/*.xpc; do
+            [ -d "$xpc" ] && sign_it "$xpc"
+          done
+
+          # 5. Extensions themselves
+          echo "5. Extensions..."
+          for appex in "$APP_PATH"/Contents/PlugIns/*.appex; do
+            [ -d "$appex" ] && sign_it "$appex"
+          done
+
+          # 6. Main app
+          echo "6. Main app..."
+          sign_it "$APP_PATH"
 
           # Verify
-          echo "=== Verifying signature ==="
-          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-          echo "App signed successfully"
+          echo "=== Verifying ==="
+          codesign --verify --deep --strict "$APP_PATH"
+
+          # Show entitlements on extension
+          echo "=== Extension entitlements ==="
+          codesign -d --entitlements :- "$APP_PATH/Contents/PlugIns/MediaInfo Finder Extension.appex" 2>/dev/null | head -20 || echo "(none)"
+
+          echo "Done!"
 
       - name: Create DMG
         run: |
