@@ -69,7 +69,7 @@ jobs:
           APP_PATH="./MediaInfoEx.app"
           SIGN_ID="Developer ID Application"
 
-          # Sign a component, preserving entitlements
+          # Sign a component, preserving entitlements (minus debug ones)
           sign_it() {
             local component="$1"
             local ent_file="/tmp/ent_$RANDOM.plist"
@@ -77,6 +77,8 @@ jobs:
             # Extract existing entitlements
             if codesign -d --entitlements :"$ent_file" "$component" 2>/dev/null; then
               if [ -s "$ent_file" ]; then
+                # Remove debug entitlement (get-task-allow) - not allowed for distribution
+                /usr/libexec/PlistBuddy -c "Delete :com.apple.security.get-task-allow" "$ent_file" 2>/dev/null || true
                 echo "  [+ent] $(basename "$component")"
                 codesign --force --timestamp --options runtime --sign "$SIGN_ID" --entitlements "$ent_file" "$component"
                 rm -f "$ent_file"
