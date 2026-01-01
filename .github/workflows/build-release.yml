@@ -22,7 +22,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Fetch upstream tags and checkout version
+        run: |
+          git remote add upstream https://github.com/sbarex/MediaInfo.git || true
+          git fetch upstream --tags
+          TAG="${{ inputs.tag || github.ref_name }}"
+          git checkout "$TAG" || git checkout "upstream/$TAG" || git checkout "$TAG"
+          git submodule update --init --recursive
 
       - name: Setup Xcode
         uses: maxim-lobanov/setup-xcode@v1
