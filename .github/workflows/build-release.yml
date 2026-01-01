@@ -66,14 +66,39 @@ jobs:
       - name: Re-sign Application
         run: |
           APP_PATH="./MediaInfoEx.app"
+          SIGN_ID="Developer ID Application"
 
-          # Re-sign with Developer ID (deep sign, preserves existing entitlements)
-          codesign --force --deep --timestamp --options runtime \
-            --sign "Developer ID Application" \
-            "$APP_PATH"
+          echo "=== Signing nested components (inside-out) ==="
 
-          # Verify signature
-          codesign --verify --deep --strict "$APP_PATH"
+          # 1. Sign Frameworks
+          echo "Signing frameworks..."
+          find "$APP_PATH/Contents/Frameworks" -type d -name "*.framework" | while read fw; do
+            codesign --force --timestamp --options runtime --sign "$SIGN_ID" "$fw"
+          done
+
+          # 2. Sign XPC Services
+          echo "Signing XPC services..."
+          find "$APP_PATH/Contents/XPCServices" -type d -name "*.xpc" 2>/dev/null | while read xpc; do
+            codesign --force --timestamp --options runtime --sign "$SIGN_ID" "$xpc"
+          done
+
+          # 3. Sign App Extensions (Finder Extension)
+          echo "Signing app extensions..."
+          find "$APP_PATH/Contents/PlugIns" -type d -name "*.appex" 2>/dev/null | while read appex; do
+            # Sign any nested XPC services in the extension first
+            find "$appex" -type d -name "*.xpc" 2>/dev/null | while read xpc; do
+              codesign --force --timestamp --options runtime --sign "$SIGN_ID" "$xpc"
+            done
+            codesign --force --timestamp --options runtime --sign "$SIGN_ID" "$appex"
+          done
+
+          # 4. Sign the main app
+          echo "Signing main app..."
+          codesign --force --timestamp --options runtime --sign "$SIGN_ID" "$APP_PATH"
+
+          # Verify
+          echo "=== Verifying signature ==="
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
           echo "App signed successfully"
 
       - name: Create DMG
