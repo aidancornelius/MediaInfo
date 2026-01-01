@@ -51,18 +51,9 @@ jobs:
         run: |
           APP_PATH="./MediaInfoEx.app"
 
-          # Remove existing signature
-          codesign --remove-signature "$APP_PATH" || true
-
-          # Find and remove signatures from nested components
-          find "$APP_PATH" -type d -name "*.app" -o -name "*.appex" -o -name "*.xpc" -o -name "*.framework" | while read component; do
-            codesign --remove-signature "$component" 2>/dev/null || true
-          done
-
-          # Re-sign with Developer ID (deep sign)
+          # Re-sign with Developer ID (deep sign, preserves existing entitlements)
           codesign --force --deep --timestamp --options runtime \
             --sign "Developer ID Application" \
-            --entitlements /dev/null \
             "$APP_PATH"
 
           # Verify signature
