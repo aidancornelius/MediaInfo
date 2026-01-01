@@ -68,33 +68,57 @@ jobs:
           APP_PATH="./MediaInfoEx.app"
           SIGN_ID="Developer ID Application"
 
+          # Function to sign with preserved entitlements
+          sign_component() {
+            local component="$1"
+            local ent_file="/tmp/ent_$(basename "$component").plist"
+
+            # Extract existing entitlements
+            codesign -d --entitlements - "$component" > "$ent_file" 2>/dev/null || true
+
+            if [ -s "$ent_file" ] && grep -q "dict" "$ent_file"; then
+              echo "  Signing with entitlements: $component"
+              codesign --force --timestamp --options runtime --sign "$SIGN_ID" --entitlements "$ent_file" "$component"
+            else
+              echo "  Signing without entitlements: $component"
+              codesign --force --timestamp --options runtime --sign "$SIGN_ID" "$component"
+            fi
+            rm -f "$ent_file"
+          }
+
           echo "=== Signing nested components (inside-out) ==="
 
           # 1. Sign Frameworks
           echo "Signing frameworks..."
-          find "$APP_PATH/Contents/Frameworks" -type d -name "*.framework" | while read fw; do
-            codesign --force --timestamp --options runtime --sign "$SIGN_ID" "$fw"
+          find "$APP_PATH/Contents/Frameworks" -type d -name "*.framework" -maxdepth 1 | while read fw; do
+            sign_component "$fw"
           done
 
-          # 2. Sign XPC Services
+          # 2. Sign XPC Services in main app
           echo "Signing XPC services..."
-          find "$APP_PATH/Contents/XPCServices" -type d -name "*.xpc" 2>/dev/null | while read xpc; do
-            codesign --force --timestamp --options runtime --sign "$SIGN_ID" "$xpc"
-          done
-
-          # 3. Sign App Extensions (Finder Extension)
-          echo "Signing app extensions..."
-          find "$APP_PATH/Contents/PlugIns" -type d -name "*.appex" 2>/dev/null | while read appex; do
-            # Sign any nested XPC services in the extension first
-            find "$appex" -type d -name "*.xpc" 2>/dev/null | while read xpc; do
-              codesign --force --timestamp --options runtime --sign "$SIGN_ID" "$xpc"
+          if [ -d "$APP_PATH/Contents/XPCServices" ]; then
+            find "$APP_PATH/Contents/XPCServices" -type d -name "*.xpc" -maxdepth 1 | while read xpc; do
+              sign_component "$xpc"
             done
-            codesign --force --timestamp --options runtime --sign "$SIGN_ID" "$appex"
-          done
+          fi
+
+          # 3. Sign App Extensions (Finder Extension) and their nested components
+          echo "Signing app extensions..."
+          if [ -d "$APP_PATH/Contents/PlugIns" ]; then
+            find "$APP_PATH/Contents/PlugIns" -type d -name "*.appex" -maxdepth 1 | while read appex; do
+              # Sign nested XPC services in extension first
+              if [ -d "$appex/Contents/XPCServices" ]; then
+                find "$appex/Contents/XPCServices" -type d -name "*.xpc" -maxdepth 1 | while read xpc; do
+                  sign_component "$xpc"
+                done
+              fi
+              sign_component "$appex"
+            done
+          fi
 
           # 4. Sign the main app
           echo "Signing main app..."
-          codesign --force --timestamp --options runtime --sign "$SIGN_ID" "$APP_PATH"
+          sign_component "$APP_PATH"
 
           # Verify
           echo "=== Verifying signature ==="
@@ -111,15 +135,30 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           TEAM_ID: ${{ env.DEVELOPER_TEAM_ID }}
         run: |
-          # Submit for notarization
-          xcrun notarytool submit ./MediaInfo-signed.dmg \
+          # Submit for notarization and capture output
+          SUBMIT_OUT=$(xcrun notarytool submit ./MediaInfo-signed.dmg \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_PASSWORD" \
             --team-id "$TEAM_ID" \
-            --wait
+            --wait 2>&1) || true
 
-          # Staple the notarization ticket
-          xcrun stapler staple ./MediaInfo-signed.dmg
+          echo "$SUBMIT_OUT"
+
+          # Extract submission ID
+          SUBMISSION_ID=$(echo "$SUBMIT_OUT" | grep "id:" | head -1 | awk '{print $2}')
+
+          # Check if notarization succeeded
+          if echo "$SUBMIT_OUT" | grep -q "status: Accepted"; then
+            echo "Notarization successful!"
+            xcrun stapler staple ./MediaInfo-signed.dmg
+          else
+            echo "Notarization failed. Fetching log..."
+            xcrun notarytool log "$SUBMISSION_ID" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_PASSWORD" \
+              --team-id "$TEAM_ID"
+            exit 1
+          fi
 
       - name: Create Release
         env:
