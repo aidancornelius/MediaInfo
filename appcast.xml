@@ -7,11 +7,11 @@
     <language>en</language>
     <item>
       <title>Version 1.7.4</title>
-      <pubDate>Thu, 01 Jan 2026 06:31:50 +0000</pubDate>
+      <pubDate>Thu, 01 Jan 2026 06:48:30 +0000</pubDate>
       <sparkle:version>1.7.4</sparkle:version>
       <sparkle:shortVersionString>1.7.4</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>10.15</sparkle:minimumSystemVersion>
-      <enclosure url="https://github.com/aidancornelius/MediaInfo/releases/download/1.7.4-signed/MediaInfo-signed.dmg" length="23611070" type="application/octet-stream" />
+      <enclosure url="https://github.com/aidancornelius/MediaInfo/releases/download/1.7.4-signed/MediaInfo-signed.dmg" length="23611540" type="application/octet-stream" />
     </item>
   </channel>
 </rss>
