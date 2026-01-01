@@ -37,6 +37,11 @@ jobs:
         with:
           xcode-version: latest-stable
 
+      - name: Install Build Dependencies
+        run: |
+          brew install libtool autoconf automake nasm
+          echo 'export PATH="/opt/homebrew/opt/libtool/libexec/gnubin:$PATH"' >> $GITHUB_ENV
+
       - name: Import Code Signing Certificate
         env:
           CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE }}
@@ -58,10 +63,12 @@ jobs:
 
       - name: Build Application
         run: |
+          export PATH="/opt/homebrew/opt/libtool/libexec/gnubin:$PATH"
           xcodebuild -scheme "MediaInfo" \
             -configuration Release \
             -derivedDataPath ./build \
             -destination "generic/platform=macOS" \
+            -jobs 1 \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Developer ID Application" \
             DEVELOPMENT_TEAM=${{ env.DEVELOPER_TEAM_ID }} \
