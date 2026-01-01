@@ -17,6 +17,8 @@ env:
 jobs:
   build:
     runs-on: macos-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,6 +32,17 @@ jobs:
           gh release download "$TAG" --repo sbarex/MediaInfo --pattern "MediaInfoEx.zip"
           unzip MediaInfoEx.zip
           ls -la
+
+      - name: Patch Sparkle update URL
+        run: |
+          APP_PATH="./MediaInfoEx.app"
+          PLIST_PATH="$APP_PATH/Contents/Info.plist"
+
+          # Update SUFeedURL to point to our signed releases appcast
+          /usr/libexec/PlistBuddy -c "Set :SUFeedURL https://raw.githubusercontent.com/aidancornelius/MediaInfo/master/appcast.xml" "$PLIST_PATH"
+
+          echo "Updated Sparkle feed URL:"
+          /usr/libexec/PlistBuddy -c "Print :SUFeedURL" "$PLIST_PATH"
 
       - name: Import Code Signing Certificate
         env:
@@ -103,6 +116,43 @@ jobs:
 
           For the original release, see the [upstream repository](https://github.com/sbarex/MediaInfo/releases)." \
             ./MediaInfo-signed.dmg
+
+      - name: Update Appcast
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          RELEASE_TAG="${TAG}-signed"
+          DMG_URL="https://github.com/aidancornelius/MediaInfo/releases/download/${RELEASE_TAG}/MediaInfo-signed.dmg"
+          DMG_SIZE=$(stat -f%z ./MediaInfo-signed.dmg)
+          VERSION=$(echo "$TAG" | sed 's/^v//')
+          DATE=$(date -u +"%a, %d %b %Y %H:%M:%S %z")
+
+          cat > appcast.xml << EOF
+          <?xml version="1.0" encoding="utf-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+            <channel>
+              <title>MediaInfo (Signed)</title>
+              <link>https://github.com/aidancornelius/MediaInfo</link>
+              <description>Signed builds of MediaInfo</description>
+              <language>en</language>
+              <item>
+                <title>Version ${VERSION}</title>
+                <pubDate>${DATE}</pubDate>
+                <sparkle:version>${VERSION}</sparkle:version>
+                <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
+                <sparkle:minimumSystemVersion>10.15</sparkle:minimumSystemVersion>
+                <enclosure url="${DMG_URL}" length="${DMG_SIZE}" type="application/octet-stream" />
+              </item>
+            </channel>
+          </rss>
+          EOF
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add appcast.xml
+          git commit -m "Update appcast for ${TAG}" || echo "No changes to commit"
+          git push origin master
 
       - name: Cleanup Keychain
         if: always()
