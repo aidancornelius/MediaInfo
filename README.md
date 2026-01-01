@@ -1,3 +1,13 @@
+> **Signed Fork Notice**
+>
+> This is a fork of [sbarex/MediaInfo](https://github.com/sbarex/MediaInfo) that provides **signed and notarized builds**. The original upstream project does not code sign their releases, which causes macOS Gatekeeper warnings when running the app.
+>
+> This fork automatically syncs with upstream and produces signed releases that work seamlessly on macOS without security warnings. All credit for MediaInfo goes to the original developer - this fork only adds code signing.
+>
+> **[Download Signed Releases](../../releases)**
+
+---
+
 [![counter](https://img.shields.io/github/downloads/sbarex/mediainfo/latest/total)](https://github.com/sbarex/mediainfo/releases) [![counter](https://img.shields.io/github/downloads/sbarex/mediainfo/total)](https://github.com/sbarex/mediainfo/releases)
 
 [![buy me a coffee](https://img.buymeacoffee.com/button-api/?text=Buy+me+a+coffee&emoji=&slug=sbarex&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff")](https://www.buymeacoffee.com/sbarex)

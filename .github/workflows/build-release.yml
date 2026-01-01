@@ -1,0 +1,111 @@
+name: Build Signed Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build (e.g., v1.2.3)'
+        required: true
+        type: string
+  push:
+    tags:
+      - 'v*'
+
+env:
+  DEVELOPER_TEAM_ID: HK6R36PLNR
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Import Code Signing Certificate
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE }}
+          CERTIFICATE_PASSWORD: ${{ secrets.CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          # Create temporary keychain
+          KEYCHAIN_PATH=$RUNNER_TEMP/signing.keychain-db
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # Import certificate
+          CERTIFICATE_PATH=$RUNNER_TEMP/certificate.p12
+          echo -n "$CERTIFICATE_BASE64" | base64 --decode -o $CERTIFICATE_PATH
+          security import $CERTIFICATE_PATH -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+
+      - name: Build Application
+        run: |
+          xcodebuild -scheme "MediaInfo" \
+            -configuration Release \
+            -derivedDataPath ./build \
+            -destination "generic/platform=macOS" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Developer ID Application" \
+            DEVELOPMENT_TEAM=${{ env.DEVELOPER_TEAM_ID }} \
+            OTHER_CODE_SIGN_FLAGS="--timestamp" \
+            build
+
+      - name: Create DMG
+        run: |
+          APP_PATH="./build/Build/Products/Release/MediaInfoEx.app"
+          DMG_PATH="./MediaInfo-signed.dmg"
+
+          # Create DMG
+          hdiutil create -volname "MediaInfo" -srcfolder "$APP_PATH" -ov -format UDZO "$DMG_PATH"
+
+      - name: Notarize Application
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          TEAM_ID: ${{ env.DEVELOPER_TEAM_ID }}
+        run: |
+          # Submit for notarization
+          xcrun notarytool submit ./MediaInfo-signed.dmg \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$TEAM_ID" \
+            --wait
+
+          # Staple the notarization ticket
+          xcrun stapler staple ./MediaInfo-signed.dmg
+
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          RELEASE_TAG="${TAG}-signed"
+
+          gh release create "$RELEASE_TAG" \
+            --title "MediaInfo $TAG (Signed)" \
+            --notes "Signed and notarized build of MediaInfo $TAG.
+
+          This is an automated build from [sbarex/MediaInfo](https://github.com/sbarex/MediaInfo) with code signing and notarization applied.
+
+          **What's different from upstream?**
+          - Code signed with a valid Developer ID certificate
+          - Notarized by Apple for Gatekeeper compatibility
+          - No macOS security warnings when running
+
+          For the original unsigned release, see the [upstream repository](https://github.com/sbarex/MediaInfo/releases)." \
+            ./MediaInfo-signed.dmg
+
+      - name: Cleanup Keychain
+        if: always()
+        run: |
+          security delete-keychain $RUNNER_TEMP/signing.keychain-db || true
